@@ -1,14 +1,13 @@
 import streamlit as st
-import os
-import shutil
 import tempfile
 import zipfile
+import os
 from yt_dlp import YoutubeDL
 from pathlib import Path
 
 st.set_page_config(page_title="YouTube Playlist Downloader", layout="centered")
 st.title("🎥 YouTube Playlist Downloader")
-st.markdown("Download entire playlists as **MP4** or **MP3** and save them directly to your device.")
+st.markdown("Download playlists as **MP4** or **MP3**. (Updated April 2026 to handle YouTube changes)")
 
 url = st.text_input("Playlist URL", placeholder="https://www.youtube.com/playlist?list=...")
 
@@ -22,9 +21,8 @@ if st.button("🚀 Start Download", type="primary"):
     if not url:
         st.error("Please enter a playlist URL.")
     else:
-        with st.spinner("Downloading playlist... (this can take several minutes for large playlists)"):
+        with st.spinner("Downloading... This may take time for large playlists."):
             try:
-                # Create a unique temporary directory for this download
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     download_path = Path(tmp_dir)
                     
@@ -32,9 +30,22 @@ if st.button("🚀 Start Download", type="primary"):
                     quality_kbps = quality.split()[0]
 
                     ydl_opts = {
-                        'outtmpl': str(download_path / '%(playlist_title)s/%(playlist_index)02d - %(title)s.%(ext)s'),
+                        'outtmpl': str(download_path / '%(playlist_title)s - %(playlist_index)02d - %(title)s.%(ext)s'),
                         'ignoreerrors': True,
                         'quiet': False,
+                        # Key fixes for 403 errors in 2026:
+                        'extractor_args': {
+                            'youtube': {
+                                'player_client': ['web', 'web_embedded', 'tv'], # Avoid problematic android clients
+                                # 'po_token': '...' # Advanced: add if needed later
+                            }
+                        },
+                        # Additional helpful options
+                        'http_headers': {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
+                        },
+                        'retries': 5,
+                        'fragment_retries': 5,
                     }
 
                     if fmt == "mp3":
@@ -47,50 +58,49 @@ if st.button("🚀 Start Download", type="primary"):
                             }],
                         })
                     else:
+                        # Prefer combined formats when possible to reduce 403 risk
                         ydl_opts.update({
                             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
                             'merge_output_format': 'mp4',
                         })
 
+                    st.info("Starting download with updated YouTube settings...")
                     with YoutubeDL(ydl_opts) as ydl:
-                        ydl.download([url])
+                        info = ydl.extract_info(url, download=True)
 
-                    # Find the playlist folder inside tmp_dir
-                    playlist_folders = [f for f in download_path.iterdir() if f.is_dir()]
-                    if not playlist_folders:
-                        st.error("No files were downloaded.")
+                    # Collect downloaded files
+                    downloaded_files = list(download_path.rglob("*.*"))
+                    if not downloaded_files:
+                        st.error("No files downloaded. The playlist may be private, age-restricted, or currently blocked by YouTube.")
                         st.stop()
-                    
-                    playlist_folder = playlist_folders[0]  # Usually only one playlist folder
 
-                    # Create zip file in memory or on disk
-                    zip_path = download_path / "playlist_download.zip"
+                    # Create ZIP
+                    zip_path = download_path / "playlist.zip"
                     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                        for root, dirs, files in os.walk(playlist_folder):
-                            for file in files:
-                                file_path = Path(root) / file
-                                arcname = file_path.relative_to(playlist_folder.parent)
-                                zipf.write(file_path, arcname)
+                        for file in downloaded_files:
+                            if file.is_file():
+                                arcname = file.relative_to(download_path)
+                                zipf.write(file, arcname)
 
-                    # Read the zip for download button
                     with open(zip_path, "rb") as f:
                         zip_bytes = f.read()
 
-                    st.success("✅ Download ready!")
+                    playlist_name = info.get('title', 'YouTube_Playlist') if isinstance(info, dict) else 'YouTube_Playlist'
+
+                    st.success("✅ Download completed! ZIP is ready.")
                     st.download_button(
                         label="📥 Download Playlist as ZIP",
                         data=zip_bytes,
-                        file_name=f"{playlist_folder.name}.zip",
+                        file_name=f"{playlist_name}.zip",
                         mime="application/zip",
                         use_container_width=True
                     )
 
-                    # Optional: Show list of files inside
-                    with st.expander("View downloaded files"):
-                        for file in playlist_folder.rglob("*"):
-                            if file.is_file():
-                                st.write(f"• {file.relative_to(playlist_folder)}")
+                    with st.expander("📋 Downloaded files"):
+                        for f in downloaded_files:
+                            size_mb = f.stat().st_size / (1024 * 1024)
+                            st.write(f"• {f.name} ({size_mb:.1f} MB)")
 
             except Exception as e:
-                st.error(f"Error during download: {str(e)}")
-                st.info("Tip: Try a smaller playlist or check if the URL is public.")
+                st.error(f"Download error: {str(e)}")
+                st.info("Tips:\n• Try a smaller/public playlist\n• YouTube changes often — try again later\n• For best results, use the desktop Python script locally")
