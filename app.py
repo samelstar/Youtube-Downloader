@@ -60,4 +60,3 @@ if st.button("🚀 Start Download", type="primary"):
             except Exception as e:
                 st.error(f"Error: {str(e)}")
 
-st.caption("Built with yt-dlp + Streamlit • For personal use only. Respect YouTube's terms.")
