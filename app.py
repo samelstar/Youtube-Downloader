@@ -61,7 +61,7 @@ if st.button("🚀 Start Download", type="primary"):
                         st.error("No files were downloaded.")
                         st.stop()
                     
-                    playlist_folder = playlist_folders[0] # Usually only one playlist folder
+                    playlist_folder = playlist_folders[0]  # Usually only one playlist folder
 
                     # Create zip file in memory or on disk
                     zip_path = download_path / "playlist_download.zip"
